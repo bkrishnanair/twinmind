@@ -18,3 +18,57 @@ export async function transcribe(blob: Blob, apiKey: string): Promise<string> {
   const { text } = await r.json();
   return text;
 }
+
+export async function generateSuggestions(
+  transcript: string,
+  apiKey: string,
+  systemPrompt: string,
+): Promise<{ suggestions: { type: string; preview: string; }[] }> {
+  const defaultPrompt = `You are a real-time AI assistant for a user in a conversation or meeting. 
+Analyze the provided transcript and generate exactly 3 highly relevant suggestions.
+Suggestion types can be: "answer", "fact-check", "question", "talking-point", or "clarification".
+Return a JSON object with this exact structure:
+{
+  "suggestions": [
+     { "type": "fact-check", "preview": "Fact check text here..." },
+     { "type": "talking-point", "preview": "Suggested talking point here..." }
+  ]
+}
+Keep previews concise (under 20 words each).`;
+
+  const finalPrompt = systemPrompt.trim() !== '' ? systemPrompt : defaultPrompt;
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: [
+        { role: "system", content: finalPrompt },
+        { role: "user", content: `Here is the recent transcript:\n\n${transcript}` }
+      ],
+      response_format: { type: "json_object" },
+      temperature: 0.5,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Groq Suggestions error: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  try {
+    const parsed = JSON.parse(data.choices[0].message.content);
+    if (!parsed.suggestions || !Array.isArray(parsed.suggestions)) {
+      throw new Error("Invalid format");
+    }
+    return parsed;
+  } catch (e) {
+    throw new Error("Failed to parse JSON response from Groq.");
+  }
+}
+
