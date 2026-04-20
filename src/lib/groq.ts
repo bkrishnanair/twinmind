@@ -72,3 +72,44 @@ Keep previews concise (under 20 words each).`;
   }
 }
 
+export async function generateChatResponse(
+  transcript: string,
+  chatHistory: { role: string; content: string }[],
+  userMessage: string,
+  apiKey: string,
+  systemPrompt: string
+): Promise<string> {
+  const defaultPrompt = `You are a helpful AI assistant accompanying the user. 
+You will be provided with recent audio transcripts from the user's current context/meeting, and a chat history. 
+Answer the user's latest query accurately using the transcript context if relevant. Keep it concise but helpful.`;
+
+  const finalPrompt = systemPrompt.trim() !== '' ? systemPrompt : defaultPrompt;
+
+  const messages = [
+    { role: "system", content: finalPrompt },
+    { role: "system", content: `Recent Transcript Context:\n\n${transcript || "(No transcript yet)"}` },
+    ...chatHistory.map(m => ({ role: m.role, content: m.content })),
+    { role: "user", content: userMessage }
+  ];
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: { 
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "llama-3.3-70b-versatile",
+      messages: messages,
+      temperature: 0.7,
+    }),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Groq Chat error: ${response.status} ${response.statusText} - ${errorText}`);
+  }
+
+  const data = await response.json();
+  return data.choices[0].message.content;
+}
